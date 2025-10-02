@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Warisan KL Interactive Boundaries</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0;
+            background: #1a1a1a;
+        }
+        .banner-container {
+            width: 100%;
+            height: 80vh;
+            min-height: 600px;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, rgba(15,93,244,1) 19%, rgba(33,200,117,1) 89%);
+        }
+        #map { 
+            position: absolute; 
+            top: 0; 
+            bottom: 0; 
+            width: 100%; 
+            height: 100%;
+        }
+        .content-overlay {
+            position: absolute;
+            top: 75%;
+            left: 50px;
+            transform: translateY(-50%);
+            color: white;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .title {
+            font-size: 4em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-shadow: 3px 3px 8px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
+            font-family: Arial, sans-serif;
+        }
+        .subtitle {
+            font-size: 1.5em;
+            opacity: 0.9;
+            text-shadow: 2px 2px 6px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
+            font-family: Arial, sans-serif;
+        }
+        #file-input {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        #file-input input {
+            font-size: 14px;
+        }
+        @media (max-width: 768px) {
+            .banner-container {
+                height: 50vh;
+                min-height: 400px;
+            }
+            .content-overlay {
+                left: 30px;
+                top: 80%;
+            }
+            .title {
+                font-size: 2.5em;
+            }
+            .subtitle {
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="banner-container">
+        <div id="map"></div>
+        <div class="content-overlay">
+            <div class="title">Urban Analytics</div>
+            <div class="subtitle">From Understanding Data to Developing Insights</div>
+        </div>
+        <div id="file-input">
+            <label for="shapefile">Upload Shapefile (.zip): </label>
+            <input type="file" id="shapefile" accept=".zip,.geojson" />
+        </div>
+    </div>
+<script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+<script>
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: 'https://tiles.openfreemap.org/styles/dark',
+        center: [101.6941, 3.1500],
+        zoom: 14,
+        pitch: 55,
+        bearing: 0,
+        maxBounds: [[101.680, 3.135], [101.715, 3.165]]
+    });
+
+    let currentHoveredZone = null;
+
+    map.on('load', () => {
+        // Add grey 3D buildings initially
+        map.addLayer({
+            'id': '3d-buildings',
+            'source': 'openmaptiles',
+            'source-layer': 'building',
+            'type': 'fill-extrusion',
+            'minzoom': 13,
+            'paint': {
+                'fill-extrusion-color': '#555555',
+                'fill-extrusion-height': ['get', 'render_height'],
+                'fill-extrusion-base': ['get', 'render_min_height'],
+                'fill-extrusion-opacity': 0.9
+            }
+        });
+    });
+
+    // Handle shapefile upload
+    document.getElementById('shapefile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            if (file.name.endsWith('.zip')) {
+                // Parse shapefile from zip
+                shp(event.target.result).then(function(geojson) {
+                    addBoundariesToMap(geojson);
+                });
+            } else if (file.name.endsWith('.geojson')) {
+                // Parse GeoJSON directly
+                const geojson = JSON.parse(event.target.result);
+                addBoundariesToMap(geojson);
+            }
+        };
+        
+        if (file.name.endsWith('.zip')) {
+            reader.readAsArrayBuffer(file);
+        } else {
+            reader.readAsText(file);
+        }
+    });
+
+    function addBoundariesToMap(geojson) {
+        // Add boundary polygons source
+        map.addSource('boundaries', {
+            'type': 'geojson',
+            'data': geojson
+        });
+
+        // Add boundary outlines
+        map.addLayer({
+            'id': 'boundary-lines',
+            'type': 'line',
+            'source': 'boundaries',
+            'paint': {
+                'line-color': '#21C875',
+                'line-width': 2,
+                'line-opacity': 0.8
+            }
+        });
+
+        // Add transparent fill for hover detection
+        map.addLayer({
+            'id': 'boundary-fill',
+            'type': 'fill',
+            'source': 'boundaries',
+            'paint': {
+                'fill-color': '#0F5DF4',
+                'fill-opacity': 0
+            }
+        });
+
+        // Change cursor on hover
+        map.on('mouseenter', 'boundary-fill', () => {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+
+        map.on('mouseleave', 'boundary-fill', () => {
+            map.getCanvas().style.cursor = '';
+            // Reset buildings to grey when leaving boundary
+            if (currentHoveredZone) {
+                resetBuildingColors();
+                currentHoveredZone = null;
+            }
+        });
+
+        // Handle hover to change building colors
+        map.on('mousemove', 'boundary-fill', (e) => {
+            if (e.features.length > 0) {
+                const feature = e.features[0];
+                
+                // Only update if hovering a different zone
+                if (currentHoveredZone !== feature.id) {
+                    currentHoveredZone = feature.id;
+                    highlightBuildingsInZone(feature);
+                }
+            }
+        });
+    }
+
+    function highlightBuildingsInZone(zone) {
+        // Change building colors based on height when hovering over a zone
+        map.setPaintProperty('3d-buildings', 'fill-extrusion-color', [
+            'interpolate',
+            ['linear'],
+            ['get', 'render_height'],
+            0, '#21C875',
+            50, '#1BA668',
+            100, '#17855A',
+            150, '#13644C',
+            200, '#0F5DF4',
+            300, '#0A4BC4',
+            450, '#0539A4'
+        ]);
+    }
+
+    function resetBuildingColors() {
+        // Reset to grey when not hovering
+        map.setPaintProperty('3d-buildings', 'fill-extrusion-color', '#555555');
+    }
+</script>
+</body>
+</html>
