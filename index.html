@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Warisan KL — Lucsa 3D + Blocks</title>
+  <title>Warisan KL — Superlucsa 3D + Blocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
@@ -38,18 +38,11 @@
 const PRECINCT_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/precinct.zip';
 const BUILDING_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/KLCCD_core_building_processed.zip';
 
-/* Lucsa pastel colors */
-const lucsaColors = {
-  'Residential': '#FFD3B6',
-  'Commercial': '#FFAAA5',
-  'Institutional': '#A8E6CF',
-  'Industrial': '#D0BAFF',
-  'Recreation': '#FFFFB5'
-};
-const defaultLucsaColor = '#CFCFCF';
-
-/* Block highlight palette (bright) */
+/* Block highlight palette (bright distinct) */
 const blockHighlightPalette = ['#E41A1C','#377EB8','#4DAF4A','#984EA3','#FF7F00','#FFFF33','#A65628'];
+
+/* Pastel palette for Superlucsa categories */
+const pastelPalette = ['#FFD3B6','#FFAAA5','#A8E6CF','#D0BAFF','#FFFFB5','#B5EAD7','#C7CEEA','#FFDAC1'];
 
 /* ---------- Map Init ---------- */
 const map = new maplibregl.Map({
@@ -64,13 +57,14 @@ const map = new maplibregl.Map({
 let precincts = null;
 let lucsaBuildings = null;
 let blockToFeatureIndices = {};
-let lucsaCategories = [];
-let lucsaMatchExpression = null;
+let superlucsaCategories = [];
+let superlucsaColors = {};
+let superlucsaMatchExpression = null;
 
 map.on('load', async () => {
   await waitForIdle();
 
-  // 1) OSM 3D grey buildings
+  // 1) OSM 3D grey buildings (background)
   map.addLayer({
     id: 'osm-3d-base',
     type: 'fill-extrusion',
@@ -80,17 +74,18 @@ map.on('load', async () => {
       'fill-extrusion-color': '#555555',
       'fill-extrusion-height': ['get','render_height'],
       'fill-extrusion-base': ['get','render_min_height'],
-      'fill-extrusion-opacity': 0.9
+      'fill-extrusion-opacity': 0.8
     }
   });
 
-  // 2) Load shapefiles
+  // 2) Load precincts
   precincts = await loadShapefileAsGeoJSON(PRECINCT_ZIP_URL);
   precincts.features.forEach((f,i)=> {
     if(!('Block' in f.properties)) f.properties.Block = String(i);
     f.properties._color = blockHighlightPalette[i % blockHighlightPalette.length];
   });
 
+  // 3) Load buildings (Superlucsa)
   lucsaBuildings = await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
   lucsaBuildings.features.forEach((f,i)=> {
     if(!('Superlucsa' in f.properties)) f.properties.Superlucsa = 'Unknown';
@@ -99,10 +94,11 @@ map.on('load', async () => {
   });
 
   // categories
-  lucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.Superlucsa || 'Unknown')));
-  lucsaMatchExpression = buildMatchExpression(lucsaCategories);
+  superlucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.Superlucsa || 'Unknown')));
+  superlucsaColors = assignColorsFromCategories(superlucsaCategories, pastelPalette);
+  superlucsaMatchExpression = buildMatchExpression(superlucsaCategories, superlucsaColors);
 
-  // join heights from OSM
+  // join heights
   const osmFeatures = map.querySourceFeatures('openmaptiles',{sourceLayer:'building'})||[];
   joinHeightsClientSide(lucsaBuildings, osmFeatures);
 
@@ -110,7 +106,7 @@ map.on('load', async () => {
   buildBlockToFeaturesIndex(precincts, lucsaBuildings);
 
   // add layers
-  addLucsaLayer();
+  addSuperlucsaLayer();
   addPrecinctLayer();
 
   setupHoverHandlers();
@@ -134,12 +130,16 @@ async function loadShapefileAsGeoJSON(url){
   throw new Error('Bad shapefile '+url);
 }
 
-function buildMatchExpression(categories){
-  const expr = ['match',['get','Superlucsa']];
-  for(const c of categories){
-    expr.push(c, lucsaColors[c] || defaultLucsaColor);
-  }
-  expr.push(defaultLucsaColor);
+function assignColorsFromCategories(categories, palette){
+  const map={};
+  categories.forEach((c,i)=> map[c]=palette[i%palette.length]);
+  return map;
+}
+
+function buildMatchExpression(categories,colorMap){
+  const expr=['match',['get','Superlucsa']];
+  for(const c of categories){ expr.push(c,colorMap[c]); }
+  expr.push('#CFCFCF');
   return expr;
 }
 
@@ -147,7 +147,7 @@ function joinHeightsClientSide(lucsaGeo, osmFeatures){
   const osmIndex = osmFeatures.map(f=>({bbox:turf.bbox(f.geometry),feature:f}));
   for(const lb of lucsaGeo.features){
     let assigned=12;
-    const bb = turf.bbox(lb.geometry);
+    const bb=turf.bbox(lb.geometry);
     for(const item of osmIndex){
       if(item.bbox[0]>bb[2]||item.bbox[2]<bb[0]||item.bbox[1]>bb[3]||item.bbox[3]<bb[1]) continue;
       try{
@@ -176,17 +176,17 @@ function buildBlockToFeaturesIndex(precinctsGeo, lucsaGeo){
   }
 }
 
-function addLucsaLayer(){
-  map.addSource('lucsa-buildings',{type:'geojson',data:lucsaBuildings});
+function addSuperlucsaLayer(){
+  map.addSource('superlucsa-buildings',{type:'geojson',data:lucsaBuildings});
   map.addLayer({
-    id:'lucsa-buildings-3d',
+    id:'superlucsa-buildings-3d',
     type:'fill-extrusion',
-    source:'lucsa-buildings',
+    source:'superlucsa-buildings',
     paint:{
       'fill-extrusion-color':[
         'case',
         ['==',['get','inBlock'],true],
-        lucsaMatchExpression,
+        superlucsaMatchExpression,
         '#d0d0d0'
       ],
       'fill-extrusion-height':['get','_height'],
@@ -228,12 +228,12 @@ function setupHoverHandlers(){
     for(let i=0;i<lucsaBuildings.features.length;i++){
       lucsaBuildings.features[i].properties.inBlock=indicesIn.has(i);
     }
-    map.getSource('lucsa-buildings').setData(lucsaBuildings);
+    map.getSource('superlucsa-buildings').setData(lucsaBuildings);
   });
   map.on('mouseleave','precinct-hover-hit',()=>{
     map.setFilter('precinct-highlight',['==',['get','Block'],'__none__']);
     for(const f of lucsaBuildings.features) f.properties.inBlock=true;
-    map.getSource('lucsa-buildings').setData(lucsaBuildings);
+    map.getSource('superlucsa-buildings').setData(lucsaBuildings);
   });
 }
 
@@ -241,7 +241,7 @@ function buildLegend(){
   const legend=document.getElementById('legend');
   legend.innerHTML='<h4>Legend</h4>';
   legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (Superlucsa)</div>';
-  for(const [k,v] of Object.entries(lucsaColors)){
+  for(const [k,v] of Object.entries(superlucsaColors)){
     legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${v}"></div><div>${k}</div></div>`;
   }
   legend.innerHTML+='<div style="font-weight:600;margin-top:8px;">Block highlight (on hover)</div>';
