@@ -104,19 +104,19 @@
             'type': 'fill',
             'source': 'precincts',
             'paint': { 'fill-color': '#FF6B6B', 'fill-opacity': 0.4 },
-            'filter': ['==', 'id', -1] // nothing selected initially
+            'filter': ['==', ['get', 'Block'], '']
         });
 
         // Hover interaction
         map.on('mousemove', 'precinct-fill', (e) => {
             if (e.features.length > 0) {
-                const hoveredId = e.features[0].id;
-                map.setFilter('precinct-highlight', ['==', 'id', hoveredId]);
+                const hoveredBlock = e.features[0].properties.Block;
+                map.setFilter('precinct-highlight', ['==', ['get', 'Block'], hoveredBlock]);
             }
         });
 
         map.on('mouseleave', 'precinct-fill', () => {
-            map.setFilter('precinct-highlight', ['==', 'id', -1]);
+            map.setFilter('precinct-highlight', ['==', ['get', 'Block'], '']);
         });
     }
 </script>
