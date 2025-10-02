@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Warisan KL Interactive Boundaries</title>
+    <title>Warisan KL Interactive Precincts</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
     <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
@@ -49,19 +49,6 @@
             text-shadow: 2px 2px 6px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
             font-family: Arial, sans-serif;
         }
-        #file-input {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 10;
-            background: white;
-            padding: 10px 15px;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }
-        #file-input input {
-            font-size: 14px;
-        }
         @media (max-width: 768px) {
             .banner-container {
                 height: 50vh;
@@ -87,10 +74,6 @@
             <div class="title">Urban Analytics</div>
             <div class="subtitle">From Understanding Data to Developing Insights</div>
         </div>
-        <div id="file-input">
-            <label for="shapefile">Upload Shapefile (.zip): </label>
-            <input type="file" id="shapefile" accept=".zip,.geojson" />
-        </div>
     </div>
 <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
 <script>
@@ -98,13 +81,23 @@
         container: 'map',
         style: 'https://tiles.openfreemap.org/styles/dark',
         center: [101.6941, 3.1500],
-        zoom: 14,
+        zoom: 14.5,
         pitch: 55,
         bearing: 0,
         maxBounds: [[101.680, 3.135], [101.715, 3.165]]
     });
 
-    let currentHoveredZone = null;
+    // Define unique colors for each precinct
+    const precinctColors = [
+        '#FF6B6B', // Red
+        '#4ECDC4', // Turquoise
+        '#FFD93D', // Yellow
+        '#A8E6CF', // Light Green
+        '#C77DFF'  // Purple
+    ];
+
+    let currentHoveredPrecinct = null;
+    let precinctGeometry = null;
 
     map.on('load', () => {
         // Add grey 3D buildings initially
@@ -121,58 +114,51 @@
                 'fill-extrusion-opacity': 0.9
             }
         });
+
+        // Load shapefile from GitHub
+        loadShapefileFromGitHub();
     });
 
-    // Handle shapefile upload
-    document.getElementById('shapefile').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            if (file.name.endsWith('.zip')) {
-                // Parse shapefile from zip
-                shp(event.target.result).then(function(geojson) {
-                    addBoundariesToMap(geojson);
-                });
-            } else if (file.name.endsWith('.geojson')) {
-                // Parse GeoJSON directly
-                const geojson = JSON.parse(event.target.result);
-                addBoundariesToMap(geojson);
-            }
-        };
-        
-        if (file.name.endsWith('.zip')) {
-            reader.readAsArrayBuffer(file);
-        } else {
-            reader.readAsText(file);
+    async function loadShapefileFromGitHub() {
+        try {
+            const response = await fetch('https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/precinct.zip');
+            const arrayBuffer = await response.arrayBuffer();
+            const geojson = await shp(arrayBuffer);
+            
+            // Store geometry for intersection checks
+            precinctGeometry = geojson;
+            
+            // Add boundaries to map
+            addBoundariesToMap(geojson);
+        } catch (error) {
+            console.error('Error loading shapefile:', error);
         }
-    });
+    }
 
     function addBoundariesToMap(geojson) {
-        // Add boundary polygons source
-        map.addSource('boundaries', {
+        // Add precinct polygons source
+        map.addSource('precincts', {
             'type': 'geojson',
             'data': geojson
         });
 
-        // Add boundary outlines
+        // Add precinct outlines
         map.addLayer({
-            'id': 'boundary-lines',
+            'id': 'precinct-lines',
             'type': 'line',
-            'source': 'boundaries',
+            'source': 'precincts',
             'paint': {
-                'line-color': '#21C875',
+                'line-color': '#FFFFFF',
                 'line-width': 2,
-                'line-opacity': 0.8
+                'line-opacity': 0.5
             }
         });
 
         // Add transparent fill for hover detection
         map.addLayer({
-            'id': 'boundary-fill',
+            'id': 'precinct-fill',
             'type': 'fill',
-            'source': 'boundaries',
+            'source': 'precincts',
             'paint': {
                 'fill-color': '#0F5DF4',
                 'fill-opacity': 0
@@ -180,53 +166,56 @@
         });
 
         // Change cursor on hover
-        map.on('mouseenter', 'boundary-fill', () => {
+        map.on('mouseenter', 'precinct-fill', () => {
             map.getCanvas().style.cursor = 'pointer';
         });
 
-        map.on('mouseleave', 'boundary-fill', () => {
+        map.on('mouseleave', 'precinct-fill', () => {
             map.getCanvas().style.cursor = '';
-            // Reset buildings to grey when leaving boundary
-            if (currentHoveredZone) {
+            // Reset buildings to grey when leaving precinct
+            if (currentHoveredPrecinct !== null) {
                 resetBuildingColors();
-                currentHoveredZone = null;
+                currentHoveredPrecinct = null;
             }
         });
 
         // Handle hover to change building colors
-        map.on('mousemove', 'boundary-fill', (e) => {
+        map.on('mousemove', 'precinct-fill', (e) => {
             if (e.features.length > 0) {
                 const feature = e.features[0];
+                const precinctIndex = feature.id || e.features.indexOf(feature);
                 
-                // Only update if hovering a different zone
-                if (currentHoveredZone !== feature.id) {
-                    currentHoveredZone = feature.id;
-                    highlightBuildingsInZone(feature);
+                // Only update if hovering a different precinct
+                if (currentHoveredPrecinct !== precinctIndex) {
+                    currentHoveredPrecinct = precinctIndex;
+                    highlightBuildingsInPrecinct(feature, precinctIndex);
                 }
             }
         });
     }
 
-    function highlightBuildingsInZone(zone) {
-        // Change building colors based on height when hovering over a zone
+    function highlightBuildingsInPrecinct(precinct, index) {
+        // Get the color for this precinct
+        const color = precinctColors[index % precinctColors.length];
+        
+        // Create a filter to only show buildings within the precinct bounds
+        const bounds = turf.bbox(precinct);
+        
+        // Highlight buildings with precinct-specific color
         map.setPaintProperty('3d-buildings', 'fill-extrusion-color', [
-            'interpolate',
-            ['linear'],
-            ['get', 'render_height'],
-            0, '#21C875',
-            50, '#1BA668',
-            100, '#17855A',
-            150, '#13644C',
-            200, '#0F5DF4',
-            300, '#0A4BC4',
-            450, '#0539A4'
+            'case',
+            ['within', precinct],
+            color,
+            '#555555'  // Grey for buildings outside
         ]);
     }
 
     function resetBuildingColors() {
-        // Reset to grey when not hovering
+        // Reset all buildings to grey
         map.setPaintProperty('3d-buildings', 'fill-extrusion-color', '#555555');
     }
+</script>
+<script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
 </script>
 </body>
 </html>
