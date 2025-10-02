@@ -1,284 +1,197 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Warisan KL Urban Analytics</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
-  <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
-  <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
-  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-  <style>
-    body { margin:0; padding:0; background:#1a1a1a; }
-    .banner-container {
-      width: 100%;
-      height: 80vh;
-      min-height: 600px;
-      position: relative;
-      overflow: hidden;
-      background: linear-gradient(135deg, rgba(15,93,244,1) 19%, rgba(33,200,117,1) 89%);
-    }
-    #map { position:absolute; top:0; bottom:0; width:100%; height:100%; }
-    .content-overlay {
-      position: absolute;
-      top: 75%;
-      left: 50px;
-      transform: translateY(-50%);
-      color: white;
-      z-index: 10;
-      pointer-events: none;
-    }
-    .title {
-      font-size: 4em;
-      font-weight: bold;
-      margin-bottom: 15px;
-      text-shadow: 3px 3px 8px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
-      font-family: Arial, sans-serif;
-    }
-    .subtitle {
-      font-size: 1.5em;
-      opacity: 0.9;
-      text-shadow: 2px 2px 6px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
-      font-family: Arial, sans-serif;
-    }
-    .legend {
-      position: absolute;
-      bottom: 16px;
-      right: 16px;
-      z-index: 999;
-      background: rgba(255,255,255,0.95);
-      padding: 10px;
-      border-radius: 6px;
-      font-size:13px;
-      color:#111;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      max-width:260px;
-    }
-    .legend h4 { margin:0 0 6px 0; font-size:14px; }
-    .legend .row { display:flex; align-items:center; margin:4px 0; }
-    .legend .swatch { width:14px; height:14px; margin-right:8px; border:1px solid #777; }
-    @media (max-width: 768px) {
-      .banner-container { height: 50vh; min-height: 400px; }
-      .content-overlay { left: 30px; top: 80%; }
-      .title { font-size: 2.5em; }
-      .subtitle { font-size: 1.2em; }
-    }
-  </style>
+    <meta charset="utf-8">
+    <title>Warisan KL Urban Analytics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
+    <style>
+        body { margin: 0; padding: 0; background: #1a1a1a; }
+        .banner-container {
+            width: 100%;
+            height: 80vh;
+            min-height: 600px;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, rgba(15,93,244,1) 19%, rgba(33,200,117,1) 89%);
+        }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
+        .content-overlay {
+            position: absolute; top: 75%; left: 50px; transform: translateY(-50%);
+            color: white; z-index: 10; pointer-events: none;
+        }
+        .title { font-size: 4em; font-weight: bold; margin-bottom: 15px;
+            text-shadow: 3px 3px 8px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
+            font-family: Arial, sans-serif; }
+        .subtitle { font-size: 1.5em; opacity: 0.9;
+            text-shadow: 2px 2px 6px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
+            font-family: Arial, sans-serif; }
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(26,26,26,0.9);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: white;
+        }
+        .legend h4 { margin: 0 0 8px; font-size: 13px; }
+        .legend div { display: flex; align-items: center; margin-bottom: 6px; }
+        .legend span {
+            display: inline-block; width: 16px; height: 16px;
+            margin-right: 8px; border-radius: 3px;
+        }
+    </style>
 </head>
 <body>
-<div class="banner-container">
-  <div id="map"></div>
-  <div class="content-overlay">
-    <div class="title">Urban Analytics</div>
-    <div class="subtitle">From Understanding Data to Developing Insights</div>
-  </div>
-  <div class="legend" id="legend"></div>
-</div>
+    <div class="banner-container">
+        <div id="map"></div>
+        <div class="content-overlay">
+            <div class="title">Urban Analytics</div>
+            <div class="subtitle">From Understanding Data to Developing Insights</div>
+        </div>
+        <div id="legend" class="legend"></div>
+    </div>
 
+<script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 <script>
-const PRECINCT_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/precinct.zip';
-const BUILDING_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/KLCCD_core_building_processed.zip';
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: 'https://tiles.openfreemap.org/styles/dark',
+        center: [101.6941, 3.1500],
+        zoom: 14,
+        pitch: 55,
+        bearing: 0,
+        maxBounds: [[101.680, 3.135], [101.715, 3.165]]
+    });
 
-const blockHighlightPalette = ['#E41A1C','#377EB8','#4DAF4A','#984EA3','#FF7F00','#FFFF33','#A65628'];
-const pastelPalette = ['#FFD3B6','#FFAAA5','#A8E6CF','#D0BAFF','#FFFFB5','#B5EAD7','#C7CEEA','#FFDAC1','#E2F0CB','#B2F7EF','#F1CBFF'];
+    // Color palettes
+    const blockColors = ['#FF6B6B','#4ECDC4','#FFD93D','#A8E6CF','#C77DFF'];
+    const mainEntitColors = {
+        "Government": "#FF6B6B",
+        "Commercial": "#4ECDC4",
+        "Cultural": "#FFD93D",
+        "Education": "#C77DFF",
+        "Religious": "#A8E6CF"
+    };
 
-let precincts=null, buildings=null, entitCategories=[], entitColors={}, entitMatchExpression=null, blockToFeatureIndices={};
+    let hoveredBlock = null;
 
-// legend labels (edit freely later)
-const legendLabels = {
-  "Government": "Government / Civic",
-  "Commercial": "Shops & Businesses",
-  "Residential": "Housing",
-  "Cultural": "Cultural Sites",
-  "Unknown": "Other / Not Classified"
-};
+    map.on('load', () => {
+        // Base OSM grey 3D buildings
+        map.addLayer({
+            'id': '3d-buildings',
+            'source': 'openmaptiles',
+            'source-layer': 'building',
+            'type': 'fill-extrusion',
+            'minzoom': 13,
+            'paint': {
+                'fill-extrusion-color': '#555555',
+                'fill-extrusion-height': ['get', 'render_height'],
+                'fill-extrusion-base': ['get', 'render_min_height'],
+                'fill-extrusion-opacity': 0.8
+            }
+        });
 
-const map = new maplibregl.Map({
-  container:'map',
-  style:'https://tiles.openfreemap.org/styles/dark',
-  center:[101.6941,3.1500],
-  zoom:14.5,
-  pitch:55,
-  bearing:0,
-  maxBounds:[[101.680,3.135],[101.715,3.165]]
-});
+        loadPrecincts();
+        loadBuildings();
+    });
 
-map.on('load', async ()=>{
-  await waitForIdle();
+    async function loadPrecincts() {
+        const res = await fetch('https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/precinct.zip');
+        const arrBuf = await res.arrayBuffer();
+        const precincts = await shp(arrBuf);
+        precincts.features.forEach((f,i)=>f.id=i);
 
-  // OSM background grey buildings
-  map.addLayer({
-    id:'osm-3d-base',
-    type:'fill-extrusion',
-    source:'openmaptiles',
-    'source-layer':'building',
-    paint:{
-      'fill-extrusion-color':'#555555',
-      'fill-extrusion-height':['get','render_height'],
-      'fill-extrusion-base':['get','render_min_height'],
-      'fill-extrusion-opacity':0.6
+        map.addSource('precincts',{type:'geojson',data:precincts});
+        map.addLayer({
+            id:'precinct-fill',
+            type:'fill',
+            source:'precincts',
+            paint:{'fill-color':'#000','fill-opacity':0}
+        });
+        map.addLayer({
+            id:'precinct-highlight',
+            type:'fill',
+            source:'precincts',
+            paint:{'fill-color':['case',
+                ['boolean',['feature-state','hover'],false],
+                ['get','color'],
+                '#000'
+            ], 'fill-opacity':0.3}
+        });
+
+        map.on('mousemove','precinct-fill', e=>{
+            if(e.features.length>0){
+                if(hoveredBlock!==null){
+                    map.setFeatureState({source:'precincts',id:hoveredBlock},{hover:false});
+                }
+                hoveredBlock=e.features[0].id;
+                e.features[0].properties.color=blockColors[hoveredBlock%blockColors.length];
+                map.setFeatureState({source:'precincts',id:hoveredBlock},{hover:true});
+                updateBuildingFilter(e.features[0]);
+            }
+        });
+        map.on('mouseleave','precinct-fill',()=>{
+            if(hoveredBlock!==null){
+                map.setFeatureState({source:'precincts',id:hoveredBlock},{hover:false});
+                hoveredBlock=null;
+            }
+            resetBuildings();
+        });
     }
-  });
 
-  // Load precincts
-  precincts=await loadShapefileAsGeoJSON(PRECINCT_ZIP_URL);
-  precincts.features.forEach((f,i)=>{
-    if(!('Block' in f.properties)) f.properties.Block=String(i);
-    f.properties._color=blockHighlightPalette[i % blockHighlightPalette.length];
-  });
+    async function loadBuildings() {
+        const res = await fetch('https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/KLCCD_core_building_processed.zip');
+        const arrBuf = await res.arrayBuffer();
+        const buildings = await shp(arrBuf);
+        map.addSource('custom-buildings',{type:'geojson',data:buildings});
 
-  // Load buildings
-  buildings=await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
-  buildings.features.forEach((f,i)=>{
-    if(!('main_entit' in f.properties)) f.properties.main_entit='Unknown';
-    f.properties.__index=i;
-    f.properties.inBlock=true;
-  });
+        map.addLayer({
+            id:'custom-buildings-layer',
+            type:'fill-extrusion',
+            source:'custom-buildings',
+            paint:{
+                'fill-extrusion-color':'#555555',
+                'fill-extrusion-height':['get','render_height'],
+                'fill-extrusion-base':['get','render_min_height'],
+                'fill-extrusion-opacity':0.95
+            }
+        });
 
-  entitCategories=Array.from(new Set(buildings.features.map(f=>f.properties.main_entit||'Unknown')));
-  entitColors=assignColorsFromCategories(entitCategories,pastelPalette);
-  entitMatchExpression=buildMatchExpression(entitCategories,entitColors);
-
-  const osmFeatures=map.querySourceFeatures('openmaptiles',{sourceLayer:'building'})||[];
-  joinHeightsClientSide(buildings,osmFeatures);
-
-  buildBlockToFeaturesIndex(precincts,buildings);
-
-  // Add precincts BELOW buildings
-  addPrecinctLayer();
-  addEntitLayer();
-
-  setupHoverHandlers();
-  buildLegend();
-});
-
-/* ------- Helpers ------- */
-function waitForIdle(){
-  return new Promise(res=>{
-    if(map.loaded()&&map.isStyleLoaded()) map.once('idle',()=>res());
-    else map.once('load',()=>map.once('idle',()=>res()));
-  });
-}
-
-async function loadShapefileAsGeoJSON(url){
-  const r=await fetch(url); const arr=await r.arrayBuffer(); const geo=await shp(arr);
-  if(geo.type==='FeatureCollection') return geo;
-  for(const k of Object.keys(geo)){ if(geo[k].type==='FeatureCollection') return geo[k]; }
-  throw new Error('Bad shapefile '+url);
-}
-
-function assignColorsFromCategories(categories,palette){
-  const map={}; categories.forEach((c,i)=>map[c]=palette[i%palette.length]); return map;
-}
-
-function buildMatchExpression(categories,colorMap){
-  const expr=['match',['get','main_entit']];
-  for(const c of categories){ expr.push(c,colorMap[c]); }
-  expr.push('#CFCFCF');
-  return expr;
-}
-
-function joinHeightsClientSide(buildingsGeo,osmFeatures){
-  const osmIndex=osmFeatures.map(f=>({bbox:turf.bbox(f.geometry),feature:f}));
-  for(const b of buildingsGeo.features){
-    let assigned=15; const bb=turf.bbox(b.geometry);
-    for(const item of osmIndex){
-      if(item.bbox[0]>bb[2]||item.bbox[2]<bb[0]||item.bbox[1]>bb[3]||item.bbox[3]<bb[1]) continue;
-      try{ if(turf.booleanIntersects(b.geometry,item.feature.geometry)){
-        const h=item.feature.properties&&item.feature.properties.render_height;
-        if(h&&!isNaN(Number(h))){assigned=Number(h);break;}
-      }}catch{}
+        buildLegend();
     }
-    b.properties._height=assigned;
-  }
-}
 
-function buildBlockToFeaturesIndex(precinctsGeo,buildingsGeo){
-  blockToFeatureIndices={}; const bboxes=buildingsGeo.features.map(f=>turf.bbox(f.geometry));
-  for(const block of precinctsGeo.features){
-    const blockId=block.properties.Block; blockToFeatureIndices[blockId]=[];
-    const bb=turf.bbox(block.geometry);
-    for(let i=0;i<buildingsGeo.features.length;i++){
-      const b=bboxes[i]; if(b[0]>bb[2]||b[2]<bb[0]||b[1]>bb[3]||b[3]<bb[1]) continue;
-      try{ if(turf.booleanIntersects(block.geometry,buildingsGeo.features[i].geometry)) blockToFeatureIndices[blockId].push(i);}catch{}
+    function updateBuildingFilter(blockFeature){
+        const blockGeom = blockFeature.geometry;
+        map.setPaintProperty('custom-buildings-layer','fill-extrusion-color',[
+            'case',
+            ['within',blockGeom],
+            ['match',['get','main_entit'],
+                ...Object.entries(mainEntitColors).flat(),
+                '#888'
+            ],
+            '#555555'
+        ]);
     }
-  }
-}
 
-function addPrecinctLayer(){
-  map.addSource('precincts',{type:'geojson',data:precincts});
-  map.addLayer({
-    id:'precinct-hover-hit',
-    type:'fill',
-    source:'precincts',
-    paint:{'fill-color':'#000','fill-opacity':0}
-  },'osm-3d-base'); // before buildings
-  map.addLayer({
-    id:'precinct-highlight',
-    type:'fill',
-    source:'precincts',
-    paint:{'fill-color':['get','_color'],'fill-opacity':0.25},
-    filter:['==',['get','Block'],'__none__']
-  },'osm-3d-base');
-  map.addLayer({
-    id:'precinct-outline',
-    type:'line',
-    source:'precincts',
-    paint:{'line-color':'#fff','line-width':1.2,'line-opacity':0.5}
-  },'osm-3d-base');
-}
-
-function addEntitLayer(){
-  map.addSource('entit-buildings',{type:'geojson',data:buildings});
-  map.addLayer({
-    id:'entit-buildings-3d',
-    type:'fill-extrusion',
-    source:'entit-buildings',
-    paint:{
-      'fill-extrusion-color':[
-        'case',
-        ['==',['get','inBlock'],true],
-        entitMatchExpression,
-        '#d0d0d0'
-      ],
-      'fill-extrusion-height':['get','_height'],
-      'fill-extrusion-base':0,
-      'fill-extrusion-opacity':1.0
+    function resetBuildings(){
+        map.setPaintProperty('custom-buildings-layer','fill-extrusion-color','#555555');
     }
-  });
-}
 
-function setupHoverHandlers(){
-  map.on('mousemove','precinct-hover-hit',(e)=>{
-    if(!e.features||!e.features.length)return;
-    const block=e.features[0].properties.Block;
-    map.setFilter('precinct-highlight',['==',['get','Block'],block]);
-    const indicesIn=new Set(blockToFeatureIndices[block]||[]);
-    for(let i=0;i<buildings.features.length;i++){
-      buildings.features[i].properties.inBlock=indicesIn.has(i);
+    function buildLegend(){
+        const legend=document.getElementById('legend');
+        legend.innerHTML='<h4>Main Entity</h4>';
+        for(const [k,v] of Object.entries(mainEntitColors)){
+            const div=document.createElement('div');
+            div.innerHTML=`<span style="background:${v}"></span>${k}`;
+            legend.appendChild(div);
+        }
     }
-    map.getSource('entit-buildings').setData(buildings);
-  });
-  map.on('mouseleave','precinct-hover-hit',()=>{
-    map.setFilter('precinct-highlight',['==',['get','Block'],'__none__']);
-    for(const f of buildings.features) f.properties.inBlock=true;
-    map.getSource('entit-buildings').setData(buildings);
-  });
-}
-
-function buildLegend(){
-  const legend=document.getElementById('legend');
-  legend.innerHTML='<h4>Legend</h4>';
-  legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (main_entit)</div>';
-  for(const [k,v] of Object.entries(entitColors)){
-    const label=legendLabels[k]||k;
-    legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${v}"></div><div>${label}</div></div>`;
-  }
-  legend.innerHTML+='<div style="font-weight:600;margin-top:8px;">Block highlight (on hover)</div>';
-  for(const f of precincts.features){
-    legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${f.properties._color}"></div><div>Block ${f.properties.Block}</div></div>`;
-  }
-}
 </script>
 </body>
 </html>
