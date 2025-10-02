@@ -1,88 +1,130 @@
-<script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Warisan KL Interactive Precincts</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
+    <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background: #1a1a1a; }
+        .banner-container { width: 100%; height: 80vh; min-height: 600px; position: relative; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
+        .content-overlay {
+            position: absolute; top: 75%; left: 50px; transform: translateY(-50%);
+            color: white; z-index: 10; pointer-events: none;
+        }
+        .title { font-size: 4em; font-weight: bold; margin-bottom: 15px;
+            text-shadow: 3px 3px 8px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
+            font-family: Arial, sans-serif; }
+        .subtitle { font-size: 1.5em; opacity: 0.9;
+            text-shadow: 2px 2px 6px rgba(0,0,0,0.7), 1px 1px 3px rgba(0,0,0,0.9);
+            font-family: Arial, sans-serif; }
+    </style>
+</head>
+<body>
+    <div class="banner-container">
+        <div id="map"></div>
+        <div class="content-overlay">
+            <div class="title">Urban Analytics</div>
+            <div class="subtitle">From Understanding Data to Developing Insights</div>
+        </div>
+    </div>
+
 <script>
-    let hoveredBlock = null;
+const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/dark',
+    center: [101.6941, 3.1500],
+    zoom: 14.5,
+    pitch: 55,
+    bearing: 0,
+    maxBounds: [[101.680, 3.135], [101.715, 3.165]]
+});
 
-    map.on('load', () => {
-        // Grey 3D buildings
-        map.addLayer({
-            'id': '3d-buildings',
-            'source': 'openmaptiles',
-            'source-layer': 'building',
-            'type': 'fill-extrusion',
-            'minzoom': 13,
-            'paint': {
-                'fill-extrusion-color': [
-                    'case',
-                    ['boolean', ['feature-state', 'highlighted'], false],
-                    '#FF6B6B', // highlighted color
-                    '#555555'  // default grey
-                ],
-                'fill-extrusion-height': ['get', 'render_height'],
-                'fill-extrusion-base': ['get', 'render_min_height'],
-                'fill-extrusion-opacity': 0.9
-            }
-        });
+// Precinct colors
+const precinctColors = ['#FF6B6B','#4ECDC4','#FFD93D','#A8E6CF','#C77DFF'];
 
-        loadShapefileFromGitHub();
+let precinctsGeoJSON = null;
+
+map.on('load', () => {
+    // Grey 3D buildings
+    map.addLayer({
+        'id': '3d-buildings',
+        'source': 'openmaptiles',
+        'source-layer': 'building',
+        'type': 'fill-extrusion',
+        'minzoom': 13,
+        'paint': {
+            'fill-extrusion-color': '#555555',
+            'fill-extrusion-height': ['get', 'render_height'],
+            'fill-extrusion-base': ['get', 'render_min_height'],
+            'fill-extrusion-opacity': 0.9
+        }
     });
 
-    async function loadShapefileFromGitHub() {
+    // Load shapefile
+    loadShapefileFromGitHub();
+});
+
+async function loadShapefileFromGitHub() {
+    try {
         const response = await fetch('https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/precinct.zip');
         const arrayBuffer = await response.arrayBuffer();
         const geojson = await shp(arrayBuffer);
-        addBoundariesToMap(geojson);
-    }
+        geojson.features.forEach((f, i) => f.properties._color = precinctColors[i % precinctColors.length]);
+        precinctsGeoJSON = geojson;
+        addPrecinctsToMap(geojson);
+    } catch (e) { console.error("Error loading shapefile:", e); }
+}
 
-    function addBoundariesToMap(geojson) {
-        map.addSource('precincts', { type: 'geojson', data: geojson });
+function addPrecinctsToMap(geojson) {
+    map.addSource('precincts', { type: 'geojson', data: geojson });
 
-        map.addLayer({
-            'id': 'precinct-fill',
-            'type': 'fill',
-            'source': 'precincts',
-            'paint': { 'fill-color': '#0F5DF4', 'fill-opacity': 0 }
-        });
+    // Invisible fill for hover detection
+    map.addLayer({
+        'id': 'precinct-fill',
+        'type': 'fill',
+        'source': 'precincts',
+        'paint': { 'fill-color': '#000', 'fill-opacity': 0 }
+    });
 
-        // Hover interaction
-        map.on('mousemove', 'precinct-fill', (e) => {
-            if (!e.features.length) return;
+    // Hover interaction
+    map.on('mousemove', 'precinct-fill', (e) => {
+        if (!e.features.length) return;
+        const feature = e.features[0];
+        highlightBuildings(feature);
+    });
 
-            const feature = e.features[0];
-            const block = feature.properties.Block;
+    map.on('mouseleave', 'precinct-fill', () => {
+        resetBuildings();
+    });
+}
 
-            if (hoveredBlock !== block) {
-                hoveredBlock = block;
+function highlightBuildings(precinct) {
+    const color = precinct.properties._color;
+    const poly = precinct.geometry;
 
-                // Reset all building states
-                resetBuildingStates();
+    // Override building color with Turf check
+    const expression = ['case'];
+    const buildings = map.queryRenderedFeatures({ layers: ['3d-buildings'] });
 
-                // Highlight buildings inside this polygon
-                highlightBuildings(feature);
-            }
-        });
-
-        map.on('mouseleave', 'precinct-fill', () => {
-            resetBuildingStates();
-            hoveredBlock = null;
-        });
-    }
-
-    function resetBuildingStates() {
-        // Reset all building highlights
-        const features = map.queryRenderedFeatures({ layers: ['3d-buildings'] });
-        for (const f of features) {
-            map.setFeatureState({ source: 'openmaptiles', sourceLayer: 'building', id: f.id }, { highlighted: false });
+    for (const b of buildings) {
+        if (turf.booleanIntersects(b.geometry, poly)) {
+            expression.push(['==', ['id'], b.id], color);
         }
     }
+    expression.push('#555555'); // default grey
 
-    function highlightBuildings(precinctFeature) {
-        const poly = precinctFeature.geometry;
-        const buildings = map.queryRenderedFeatures({ layers: ['3d-buildings'] });
+    // Apply new color expression
+    map.setPaintProperty('3d-buildings','fill-extrusion-color',expression);
+}
 
-        for (const b of buildings) {
-            if (turf.booleanIntersects(b.geometry, poly)) {
-                map.setFeatureState({ source: 'openmaptiles', sourceLayer: 'building', id: b.id }, { highlighted: true });
-            }
-        }
-    }
+function resetBuildings() {
+    map.setPaintProperty('3d-buildings','fill-extrusion-color','#555555');
+}
 </script>
+</body>
+</html>
