@@ -12,14 +12,6 @@
         body { margin: 0; padding: 0; background: #1a1a1a; }
         .banner-container { width: 100%; height: 90vh; min-height: 600px; position: relative; overflow: hidden; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
-        .content-overlay {
-            position: absolute; top: 5%; left: 50px;
-            color: white; z-index: 10; pointer-events: none;
-        }
-        .title { font-size: 2.2em; font-weight: bold; margin-bottom: 10px; }
-        .subtitle { font-size: 1.2em; opacity: 0.9; }
-
-        /* Legend styling */
         .legend {
             position: absolute;
             bottom: 20px;
@@ -44,10 +36,6 @@
 <body>
     <div class="banner-container">
         <div id="map"></div>
-        <div class="content-overlay">
-            <div class="title">Urban Analytics</div>
-            <div class="subtitle">Precinct & Building Classes</div>
-        </div>
         <div class="legend" id="legend"></div>
     </div>
 
@@ -62,7 +50,7 @@ const map = new maplibregl.Map({
     maxBounds: [[101.680, 3.135], [101.715, 3.165]]
 });
 
-// Color mapping for building classes (lucsa_bus_)
+// Building class colors (lucsa_bus_)
 const landuseColors = {
     'Residential': '#FF6B6B',
     'Commercial': '#4ECDC4',
@@ -72,14 +60,30 @@ const landuseColors = {
 };
 const defaultBuildingColor = '#999999';
 
-// Precinct highlight colors
+// Block highlight colors
 const blockColors = ['#FF8C00','#1E90FF','#32CD32','#FF1493','#FFD700'];
 
 let precinctsGeoJSON = null;
 let buildingsGeoJSON = null;
 
-map.on('load', () => {
-    loadData();
+map.on('load', async () => {
+    // Add 3D OSM buildings (always grey)
+    map.addLayer({
+        'id': '3d-buildings',
+        'source': 'openmaptiles',
+        'source-layer': 'building',
+        'type': 'fill-extrusion',
+        'minzoom': 13,
+        'paint': {
+            'fill-extrusion-color': '#555555',
+            'fill-extrusion-height': ['get', 'render_height'],
+            'fill-extrusion-base': ['get', 'render_min_height'],
+            'fill-extrusion-opacity': 0.9
+        }
+    });
+
+    // Load shapefiles
+    await loadData();
 });
 
 async function loadData() {
@@ -106,19 +110,13 @@ function addLayers() {
     // Precincts
     map.addSource('precincts',{type:'geojson',data:precinctsGeoJSON});
     map.addLayer({
-        id:'precinct-outline',
-        type:'line',
-        source:'precincts',
-        paint:{'line-color':['get','_color'],'line-width':3,'line-opacity':0.7}
-    });
-    map.addLayer({
         id:'precinct-fill',
         type:'fill',
         source:'precincts',
-        paint:{'fill-color':'#000','fill-opacity':0}
+        paint:{'fill-color':'#000','fill-opacity':0} // invisible by default
     });
 
-    // Buildings
+    // Buildings (lucsa_bus_)
     map.addSource('buildings',{type:'geojson',data:buildingsGeoJSON});
     map.addLayer({
         id:'building-fill',
@@ -142,19 +140,20 @@ function addLayers() {
         highlightBlock(blockFeature);
     });
     map.on('mouseleave','precinct-fill',()=>{
+        resetBlocks();
         resetBuildings();
     });
 }
 
 function highlightBlock(blockFeature) {
+    const blockColor = blockFeature.properties._color;
     const poly = blockFeature.geometry;
-    const color = blockFeature.properties._color;
 
-    // Highlight block by making its fill semi-transparent
+    // Highlight block fill only when hovered
     map.setPaintProperty('precinct-fill','fill-color',[
         'case',
         ['==',['get','Block'],blockFeature.properties.Block],
-        color,
+        blockColor,
         '#000'
     ]);
     map.setPaintProperty('precinct-fill','fill-opacity',[
@@ -163,22 +162,24 @@ function highlightBlock(blockFeature) {
         0.2,0
     ]);
 
-    // Dim buildings not inside
+    // Dim buildings outside this Block
     const expr = ['case'];
     for(const feat of buildingsGeoJSON.features){
         const inside = turf.booleanIntersects(feat.geometry,poly);
         if(inside){
             const lu = feat.properties.lucsa_bus_;
             const col = landuseColors[lu] || defaultBuildingColor;
-            expr.push(['==',['get','lucsa_bus_'],lu],col);
+            expr.push(['==',['id'],feat.id || JSON.stringify(feat.geometry)],col);
         }
     }
     expr.push(defaultBuildingColor);
     map.setPaintProperty('building-fill','fill-color',expr);
 }
 
-function resetBuildings() {
+function resetBlocks(){
     map.setPaintProperty('precinct-fill','fill-opacity',0);
+}
+function resetBuildings(){
     map.setPaintProperty('building-fill','fill-color',[
         'match',
         ['get','lucsa_bus_'],
@@ -191,15 +192,15 @@ function buildLegend() {
     const legend = document.getElementById('legend');
     legend.innerHTML = '<h4>Legend</h4>';
 
-    legend.innerHTML += '<strong>Blocks</strong><br>';
-    blockColors.forEach((c,i)=>{
-        legend.innerHTML += `<div><span style="background:${c}"></span>Block ${i+1}</div>`;
-    });
-
-    legend.innerHTML += '<br><strong>Building Use</strong><br>';
+    legend.innerHTML += '<strong>Building Use</strong><br>';
     for(const [k,v] of Object.entries(landuseColors)){
         legend.innerHTML += `<div><span style="background:${v}"></span>${k}</div>`;
     }
+
+    legend.innerHTML += '<br><strong>Block Highlight</strong><br>';
+    blockColors.forEach((c,i)=>{
+        legend.innerHTML += `<div><span style="background:${c}"></span>Block ${i+1}</div>`;
+    });
 }
 </script>
 </body>
