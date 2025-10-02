@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Warisan KL — Blocks + lucsa_bus_ 3D</title>
+  <title>Warisan KL — Lucsa 3D + Blocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
@@ -38,321 +38,217 @@
 const PRECINCT_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/precinct.zip';
 const BUILDING_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bldg_banner/main/KLCCD_core_building_processed.zip';
 
-/* user-known mapping (you can extend) */
-const baseLanduseColors = {
-  'Residential': '#FF6B6B',
-  'Commercial': '#4ECDC4',
-  'Institutional': '#FFD93D',
-  'Industrial': '#C77DFF',
-  'Recreation': '#A8E6CF'
+/* Lucsa pastel colors */
+const lucsaColors = {
+  'Residential': '#FFD3B6',
+  'Commercial': '#FFAAA5',
+  'Institutional': '#A8E6CF',
+  'Industrial': '#D0BAFF',
+  'Recreation': '#FFFFB5'
 };
-const defaultBuildingColor = '#B0B0B0';
-const blockHighlightPalette = ['#FF8C00','#1E90FF','#32CD32','#FF1493','#FFD700'];
+const defaultLucsaColor = '#CFCFCF';
 
-/* ---------- Utilities ---------- */
-function hashStringToHue(s){
-  let h=0;
-  for(let i=0;i<s.length;i++){ h = (h<<5) - h + s.charCodeAt(i); h |= 0; }
-  return Math.abs(h) % 360;
-}
-const dynamicColorCache = {};
-function colorForCategory(cat){
-  if(!cat) return defaultBuildingColor;
-  if(baseLanduseColors[cat]) return baseLanduseColors[cat];
-  if(dynamicColorCache[cat]) return dynamicColorCache[cat];
-  const hue = hashStringToHue(cat);
-  const c = `hsl(${hue} 70% 55%)`;
-  dynamicColorCache[cat] = c;
-  return c;
-}
+/* Block highlight palette (bright) */
+const blockHighlightPalette = ['#E41A1C','#377EB8','#4DAF4A','#984EA3','#FF7F00','#FFFF33','#A65628'];
 
 /* ---------- Map Init ---------- */
 const map = new maplibregl.Map({
   container: 'map',
-  style: 'https://tiles.openfreemap.org/styles/dark', // key-free vector style
+  style: 'https://tiles.openfreemap.org/styles/dark',
   center: [101.6941, 3.1500],
   zoom: 15,
   pitch: 55,
-  bearing: 0,
-  attributionControl: true
+  bearing: 0
 });
 
-/* storage */
 let precincts = null;
 let lucsaBuildings = null;
-let blockToFeatureIndices = {}; // mapping Block -> [indices]
+let blockToFeatureIndices = {};
 let lucsaCategories = [];
 let lucsaMatchExpression = null;
 
-/* ---------- Main flow ---------- */
 map.on('load', async () => {
-  try {
-    // 1) Add OSM 3D building layer first (grey base)
-    map.addLayer({
-      id: 'osm-3d-base',
-      type: 'fill-extrusion',
-      source: 'openmaptiles',
-      'source-layer': 'building',
-      paint: {
-        'fill-extrusion-color': '#555555',
-        'fill-extrusion-height': ['get','render_height'],
-        'fill-extrusion-base': ['get','render_min_height'],
-        'fill-extrusion-opacity': 0.9
-      }
-    });
+  await waitForIdle();
 
-    // wait until style tiles loaded so querySourceFeatures works
-    await waitForIdle();
+  // 1) OSM 3D grey buildings
+  map.addLayer({
+    id: 'osm-3d-base',
+    type: 'fill-extrusion',
+    source: 'openmaptiles',
+    'source-layer': 'building',
+    paint: {
+      'fill-extrusion-color': '#555555',
+      'fill-extrusion-height': ['get','render_height'],
+      'fill-extrusion-base': ['get','render_min_height'],
+      'fill-extrusion-opacity': 0.9
+    }
+  });
 
-    // 2) Load precincts + lucsa building shapefiles via shp.js
-    precincts = await loadShapefileAsGeoJSON(PRECINCT_ZIP_URL);
-    // ensure block property exists
-    precincts.features.forEach((f,i)=> {
-      if(!('Block' in f.properties)) f.properties.Block = String(i);
-      f.properties._color = blockHighlightPalette[i % blockHighlightPalette.length];
-    });
+  // 2) Load shapefiles
+  precincts = await loadShapefileAsGeoJSON(PRECINCT_ZIP_URL);
+  precincts.features.forEach((f,i)=> {
+    if(!('Block' in f.properties)) f.properties.Block = String(i);
+    f.properties._color = blockHighlightPalette[i % blockHighlightPalette.length];
+  });
 
-    lucsaBuildings = await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
-    // ensure lucsa_bus_ exist
-    lucsaBuildings.features.forEach((f,i)=> {
-      if(!('lucsa_bus_' in f.properties)) f.properties.lucsa_bus_ = 'Unknown';
-      // create an id for updating by index easily
-      f.properties.__index = i;
-      // default inBlock true so default display shows all colored
-      f.properties.inBlock = true;
-    });
+  lucsaBuildings = await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
+  lucsaBuildings.features.forEach((f,i)=> {
+    if(!('Lucsa' in f.properties)) f.properties.Lucsa = 'Unknown';
+    f.properties.__index = i;
+    f.properties.inBlock = true;
+  });
 
-    // 3) prepare category list & match expression
-    lucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.lucsa_bus_ || 'Unknown')));
-    lucsaMatchExpression = buildMatchExpression(lucsaCategories);
+  // categories
+  lucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.Lucsa || 'Unknown')));
+  lucsaMatchExpression = buildMatchExpression(lucsaCategories);
 
-    // 4) enrich heights by joining OSM building render_height (client-side)
-    const osmFeatures = map.querySourceFeatures('openmaptiles', { sourceLayer: 'building' }) || [];
-    joinHeightsClientSide(lucsaBuildings, osmFeatures);
+  // join heights from OSM
+  const osmFeatures = map.querySourceFeatures('openmaptiles',{sourceLayer:'building'})||[];
+  joinHeightsClientSide(lucsaBuildings, osmFeatures);
 
-    // 5) build a spatial index mapping Block -> lucsa feature indices (precompute)
-    buildBlockToFeaturesIndex(precincts, lucsaBuildings);
+  // spatial index
+  buildBlockToFeaturesIndex(precincts, lucsaBuildings);
 
-    // 6) add sources & layers for lucsa 3D and precinct hover
-    addLucsaSourceAndLayer();
-    addPrecinctSourceAndLayer();
+  // add layers
+  addLucsaLayer();
+  addPrecinctLayer();
 
-    // 7) setup hover handlers
-    setupHoverHandlers();
-
-    // 8) build legend
-    buildLegend();
-
-  } catch (err){
-    console.error('Initialization error', err);
-  }
+  setupHoverHandlers();
+  buildLegend();
 });
 
-/* ---------- helper functions ---------- */
-
+/* ---------- Helpers ---------- */
 function waitForIdle(){
-  return new Promise(resolve => {
-    if(map.loaded() && map.style && map.isStyleLoaded()) {
-      // still wait for tiles to be idle
-      map.once('idle', () => resolve());
-    } else {
-      map.once('load', () => map.once('idle', () => resolve()));
-    }
+  return new Promise(res=>{
+    if(map.loaded()&&map.isStyleLoaded()) map.once('idle',()=>res());
+    else map.once('load',()=>map.once('idle',()=>res()));
   });
 }
 
 async function loadShapefileAsGeoJSON(url){
   const r = await fetch(url);
-  if(!r.ok) throw new Error('Failed to fetch shapefile zip: '+url);
   const arr = await r.arrayBuffer();
   const geo = await shp(arr);
-  // ensure valid featurecollection
-  if(geo.type === 'FeatureCollection') return geo;
-  // some shp.js returns an object keyed by layer; pick first FeatureCollection
-  for(const k of Object.keys(geo)){
-    if(geo[k] && geo[k].type === 'FeatureCollection') return geo[k];
-  }
-  throw new Error('Unable to parse shapefile as geojson: '+url);
+  if(geo.type==='FeatureCollection') return geo;
+  for(const k of Object.keys(geo)){ if(geo[k].type==='FeatureCollection') return geo[k]; }
+  throw new Error('Bad shapefile '+url);
 }
 
 function buildMatchExpression(categories){
-  // build ["match", ["get","lucsa_bus_"], "cat1", "#hex", "cat2", "#hex", default]
-  const expr = ['match', ['get','lucsa_bus_']];
+  const expr = ['match',['get','Lucsa']];
   for(const c of categories){
-    expr.push(c, colorForCategory(c));
+    expr.push(c, lucsaColors[c] || defaultLucsaColor);
   }
-  expr.push(defaultBuildingColor);
+  expr.push(defaultLucsaColor);
   return expr;
 }
 
 function joinHeightsClientSide(lucsaGeo, osmFeatures){
-  // If building features already include height, respect them; else attempt to copy from OSM
-  // For performance, build a simple spatial bbox index for osmFeatures
-  const osmIndex = osmFeatures.map(f => {
-    return {bbox: turf.bbox(f.geometry), feature: f};
-  });
+  const osmIndex = osmFeatures.map(f=>({bbox:turf.bbox(f.geometry),feature:f}));
   for(const lb of lucsaGeo.features){
-    let assigned = null;
-    // if lucsa already has numeric height fields
-    const p = lb.properties;
-    const hasHeight = (p.height !== undefined && !isNaN(Number(p.height))) || (p.storeys !== undefined && !isNaN(Number(p.storeys)));
-    if(hasHeight){
-      if(p.height) p._height = Number(p.height);
-      else if(p.storeys) p._height = Number(p.storeys) * 3;
-      else p._height = 12;
-      continue;
-    }
-    // else search OSMs that intersect (first by bbox)
-    const lbBbox = turf.bbox(lb.geometry);
+    let assigned=12;
+    const bb = turf.bbox(lb.geometry);
     for(const item of osmIndex){
-      // bbox quick test
-      if(item.bbox[0] > lbBbox[2] || item.bbox[2] < lbBbox[0] || item.bbox[1] > lbBbox[3] || item.bbox[3] < lbBbox[1]) continue;
-      const osm = item.feature;
-      try {
-        if(turf.booleanIntersects(lb.geometry, osm.geometry)){
-          const h = osm.properties && (osm.properties.render_height || osm.properties.height);
-          if(h && !isNaN(Number(h))){
-            assigned = Number(h);
-            break;
-          } else if(osm.properties && osm.properties['building:levels']){
-            assigned = Number(osm.properties['building:levels']) * 3;
-            break;
-          }
+      if(item.bbox[0]>bb[2]||item.bbox[2]<bb[0]||item.bbox[1]>bb[3]||item.bbox[3]<bb[1]) continue;
+      try{
+        if(turf.booleanIntersects(lb.geometry,item.feature.geometry)){
+          const h=item.feature.properties&&item.feature.properties.render_height;
+          if(h&&!isNaN(Number(h))){assigned=Number(h);break;}
         }
-      } catch(e){
-        // ignore geometry errors
-      }
+      }catch{}
     }
-    lb.properties._height = assigned || 12; // fallback height 12m
+    lb.properties._height=assigned;
   }
 }
 
 function buildBlockToFeaturesIndex(precinctsGeo, lucsaGeo){
-  blockToFeatureIndices = {};
-  // convert lucsa features to bbox to speed up tests
-  const lucsaBboxes = lucsaGeo.features.map(f => turf.bbox(f.geometry));
-
+  blockToFeatureIndices={};
+  const lucsaBboxes = lucsaGeo.features.map(f=>turf.bbox(f.geometry));
   for(const block of precinctsGeo.features){
-    const blockId = block.properties.Block;
-    blockToFeatureIndices[blockId] = [];
-    const bb = turf.bbox(block.geometry);
+    const blockId=block.properties.Block;
+    blockToFeatureIndices[blockId]=[];
+    const bb=turf.bbox(block.geometry);
     for(let i=0;i<lucsaGeo.features.length;i++){
-      // bbox quick test
-      const lb = lucsaBboxes[i];
-      if(lb[0] > bb[2] || lb[2] < bb[0] || lb[1] > bb[3] || lb[3] < bb[1]) continue;
-      // precise test
-      try {
-        if(turf.booleanIntersects(block.geometry, lucsaGeo.features[i].geometry)){
-          blockToFeatureIndices[blockId].push(i);
-        }
-      } catch(e){}
+      const lb=lucsaBboxes[i];
+      if(lb[0]>bb[2]||lb[2]<bb[0]||lb[1]>bb[3]||lb[3]<bb[1]) continue;
+      try{ if(turf.booleanIntersects(block.geometry,lucsaGeo.features[i].geometry)) blockToFeatureIndices[blockId].push(i);}catch{}
     }
   }
 }
 
-function addLucsaSourceAndLayer(){
-  // initial data: all features have inBlock=true so default shows colored by class
-  lucsaBuildings.features.forEach(f => f.properties.inBlock = true);
-
-  map.addSource('lucsa-buildings', { type:'geojson', data: lucsaBuildings });
-
-  // fill-extrusion from your processed building polygons
+function addLucsaLayer(){
+  map.addSource('lucsa-buildings',{type:'geojson',data:lucsaBuildings});
   map.addLayer({
-    id: 'lucsa-buildings-3d',
-    type: 'fill-extrusion',
-    source: 'lucsa-buildings',
-    paint: {
-      // If inBlock true => color by class, else grey
-      'fill-extrusion-color': [
+    id:'lucsa-buildings-3d',
+    type:'fill-extrusion',
+    source:'lucsa-buildings',
+    paint:{
+      'fill-extrusion-color':[
         'case',
-        ['==', ['get','inBlock'], true],
+        ['==',['get','inBlock'],true],
         lucsaMatchExpression,
         '#d0d0d0'
       ],
-      'fill-extrusion-height': ['get','_height'],
-      'fill-extrusion-base': 0,
-      'fill-extrusion-opacity': 0.95
+      'fill-extrusion-height':['get','_height'],
+      'fill-extrusion-base':0,
+      'fill-extrusion-opacity':0.95
     }
   });
 }
 
-function addPrecinctSourceAndLayer(){
-  map.addSource('precincts', { type:'geojson', data: precincts });
-
-  // invisible precinct fill used for hover detection
+function addPrecinctLayer(){
+  map.addSource('precincts',{type:'geojson',data:precincts});
   map.addLayer({
-    id: 'precinct-hover-hit',
-    type: 'fill',
-    source: 'precincts',
-    paint: { 'fill-color': '#000', 'fill-opacity': 0 }
+    id:'precinct-hover-hit',
+    type:'fill',
+    source:'precincts',
+    paint:{'fill-color':'#000','fill-opacity':0}
   });
-
-  // highlight layer: initially none shown (filter with impossible value)
   map.addLayer({
-    id: 'precinct-highlight',
-    type: 'fill',
-    source: 'precincts',
-    paint: { 'fill-color': ['get','_color'], 'fill-opacity': 0.25 },
-    filter: ['==', ['get', 'Block'], '__none__']
+    id:'precinct-highlight',
+    type:'fill',
+    source:'precincts',
+    paint:{'fill-color':['get','_color'],'fill-opacity':0.25},
+    filter:['==',['get','Block'],'__none__']
   });
-
-  // outlines on top for clarity
   map.addLayer({
-    id: 'precinct-outline',
-    type: 'line',
-    source: 'precincts',
-    paint: { 'line-color': '#ffffff', 'line-width': 1.5, 'line-opacity': 0.6 }
+    id:'precinct-outline',
+    type:'line',
+    source:'precincts',
+    paint:{'line-color':'#fff','line-width':1.2,'line-opacity':0.5}
   });
 }
 
 function setupHoverHandlers(){
-  map.on('mousemove','precinct-hover-hit', (e) => {
-    if(!e.features || !e.features.length) return;
-    const block = e.features[0].properties.Block;
-    // show highlight (filter)
-    map.setFilter('precinct-highlight', ['==', ['get','Block'], block]);
-
-    // update lucsa building features' inBlock flags using precomputed index
-    const indicesIn = new Set(blockToFeatureIndices[block] || []);
+  map.on('mousemove','precinct-hover-hit',(e)=>{
+    if(!e.features||!e.features.length)return;
+    const block=e.features[0].properties.Block;
+    map.setFilter('precinct-highlight',['==',['get','Block'],block]);
+    const indicesIn=new Set(blockToFeatureIndices[block]||[]);
     for(let i=0;i<lucsaBuildings.features.length;i++){
-      lucsaBuildings.features[i].properties.inBlock = indicesIn.has(i);
+      lucsaBuildings.features[i].properties.inBlock=indicesIn.has(i);
     }
-    // push updated data to source
     map.getSource('lucsa-buildings').setData(lucsaBuildings);
   });
-
-  map.on('mouseleave','precinct-hover-hit', () => {
-    // hide precinct highlight
-    map.setFilter('precinct-highlight', ['==', ['get', 'Block'], '__none__']);
-    // reset lucsa inBlock to true (show all colored)
-    for(const f of lucsaBuildings.features) f.properties.inBlock = true;
+  map.on('mouseleave','precinct-hover-hit',()=>{
+    map.setFilter('precinct-highlight',['==',['get','Block'],'__none__']);
+    for(const f of lucsaBuildings.features) f.properties.inBlock=true;
     map.getSource('lucsa-buildings').setData(lucsaBuildings);
   });
 }
 
-function resetToDefault(){
-  map.setFilter('precinct-highlight', ['==', ['get', 'Block'], '__none__']);
-  for(const f of lucsaBuildings.features) f.properties.inBlock = true;
-  map.getSource('lucsa-buildings').setData(lucsaBuildings);
-}
-
-/* ---------- Legend ---------- */
 function buildLegend(){
-  const legend = document.getElementById('legend');
-  legend.innerHTML = '<h4>Legend</h4>';
-  legend.innerHTML += '<div style="font-weight:600;margin-top:6px;">Building use (lucsa_bus_)</div>';
-  for(const cat of lucsaCategories){
-    const col = colorForCategory(cat);
-    legend.innerHTML += `<div class="row"><div class="swatch" style="background:${col}"></div><div>${cat}</div></div>`;
+  const legend=document.getElementById('legend');
+  legend.innerHTML='<h4>Legend</h4>';
+  legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (Lucsa)</div>';
+  for(const [k,v] of Object.entries(lucsaColors)){
+    legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${v}"></div><div>${k}</div></div>`;
   }
-  legend.innerHTML += '<div style="font-weight:600;margin-top:8px;">Block highlight (on hover)</div>';
-  for(let i=0;i<precincts.features.length;i++){
-    const c = precincts.features[i].properties._color;
-    legend.innerHTML += `<div class="row"><div class="swatch" style="background:${c}"></div><div>Block ${precincts.features[i].properties.Block}</div></div>`;
+  legend.innerHTML+='<div style="font-weight:600;margin-top:8px;">Block highlight (on hover)</div>';
+  for(const f of precincts.features){
+    legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${f.properties._color}"></div><div>Block ${f.properties.Block}</div></div>`;
   }
 }
-
-/* ---------- end script ---------- */
 </script>
 </body>
 </html>
