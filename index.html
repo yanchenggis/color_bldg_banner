@@ -93,13 +93,13 @@ map.on('load', async () => {
 
   lucsaBuildings = await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
   lucsaBuildings.features.forEach((f,i)=> {
-    if(!('Lucsa' in f.properties)) f.properties.Lucsa = 'Unknown';
+    if(!('Superlucsa' in f.properties)) f.properties.Superlucsa = 'Unknown';
     f.properties.__index = i;
     f.properties.inBlock = true;
   });
 
   // categories
-  lucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.Lucsa || 'Unknown')));
+  lucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.Superlucsa || 'Unknown')));
   lucsaMatchExpression = buildMatchExpression(lucsaCategories);
 
   // join heights from OSM
@@ -135,7 +135,7 @@ async function loadShapefileAsGeoJSON(url){
 }
 
 function buildMatchExpression(categories){
-  const expr = ['match',['get','Lucsa']];
+  const expr = ['match',['get','Superlucsa']];
   for(const c of categories){
     expr.push(c, lucsaColors[c] || defaultLucsaColor);
   }
@@ -240,7 +240,7 @@ function setupHoverHandlers(){
 function buildLegend(){
   const legend=document.getElementById('legend');
   legend.innerHTML='<h4>Legend</h4>';
-  legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (Lucsa)</div>';
+  legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (Superlucsa)</div>';
   for(const [k,v] of Object.entries(lucsaColors)){
     legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${v}"></div><div>${k}</div></div>`;
   }
