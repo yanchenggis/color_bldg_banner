@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Warisan KL — Superlucsa 3D + Blocks</title>
+  <title>Warisan KL — main_entit 3D + Blocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
@@ -22,7 +22,7 @@
       font-size:13px;
       color:#111;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      max-width:240px;
+      max-width:260px;
     }
     .legend h4 { margin:0 0 6px 0; font-size:14px; }
     .legend .row { display:flex; align-items:center; margin:4px 0; }
@@ -41,8 +41,8 @@ const BUILDING_ZIP_URL = 'https://raw.githubusercontent.com/yanchenggis/color_bl
 /* Block highlight palette (bright distinct) */
 const blockHighlightPalette = ['#E41A1C','#377EB8','#4DAF4A','#984EA3','#FF7F00','#FFFF33','#A65628'];
 
-/* Pastel palette for Superlucsa categories */
-const pastelPalette = ['#FFD3B6','#FFAAA5','#A8E6CF','#D0BAFF','#FFFFB5','#B5EAD7','#C7CEEA','#FFDAC1'];
+/* Pastel palette for main_entit categories */
+const pastelPalette = ['#FFD3B6','#FFAAA5','#A8E6CF','#D0BAFF','#FFFFB5','#B5EAD7','#C7CEEA','#FFDAC1','#E2F0CB','#B2F7EF','#F1CBFF'];
 
 /* ---------- Map Init ---------- */
 const map = new maplibregl.Map({
@@ -55,11 +55,11 @@ const map = new maplibregl.Map({
 });
 
 let precincts = null;
-let lucsaBuildings = null;
+let buildings = null;
 let blockToFeatureIndices = {};
-let superlucsaCategories = [];
-let superlucsaColors = {};
-let superlucsaMatchExpression = null;
+let entitCategories = [];
+let entitColors = {};
+let entitMatchExpression = null;
 
 map.on('load', async () => {
   await waitForIdle();
@@ -74,7 +74,7 @@ map.on('load', async () => {
       'fill-extrusion-color': '#555555',
       'fill-extrusion-height': ['get','render_height'],
       'fill-extrusion-base': ['get','render_min_height'],
-      'fill-extrusion-opacity': 0.8
+      'fill-extrusion-opacity': 0.6
     }
   });
 
@@ -85,28 +85,28 @@ map.on('load', async () => {
     f.properties._color = blockHighlightPalette[i % blockHighlightPalette.length];
   });
 
-  // 3) Load buildings (Superlucsa)
-  lucsaBuildings = await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
-  lucsaBuildings.features.forEach((f,i)=> {
-    if(!('Superlucsa' in f.properties)) f.properties.Superlucsa = 'Unknown';
+  // 3) Load buildings (main_entit)
+  buildings = await loadShapefileAsGeoJSON(BUILDING_ZIP_URL);
+  buildings.features.forEach((f,i)=> {
+    if(!('main_entit' in f.properties)) f.properties.main_entit = 'Unknown';
     f.properties.__index = i;
     f.properties.inBlock = true;
   });
 
   // categories
-  superlucsaCategories = Array.from(new Set(lucsaBuildings.features.map(f => f.properties.Superlucsa || 'Unknown')));
-  superlucsaColors = assignColorsFromCategories(superlucsaCategories, pastelPalette);
-  superlucsaMatchExpression = buildMatchExpression(superlucsaCategories, superlucsaColors);
+  entitCategories = Array.from(new Set(buildings.features.map(f => f.properties.main_entit || 'Unknown')));
+  entitColors = assignColorsFromCategories(entitCategories, pastelPalette);
+  entitMatchExpression = buildMatchExpression(entitCategories, entitColors);
 
   // join heights
   const osmFeatures = map.querySourceFeatures('openmaptiles',{sourceLayer:'building'})||[];
-  joinHeightsClientSide(lucsaBuildings, osmFeatures);
+  joinHeightsClientSide(buildings, osmFeatures);
 
   // spatial index
-  buildBlockToFeaturesIndex(precincts, lucsaBuildings);
+  buildBlockToFeaturesIndex(precincts, buildings);
 
   // add layers
-  addSuperlucsaLayer();
+  addEntitLayer();
   addPrecinctLayer();
 
   setupHoverHandlers();
@@ -137,56 +137,56 @@ function assignColorsFromCategories(categories, palette){
 }
 
 function buildMatchExpression(categories,colorMap){
-  const expr=['match',['get','Superlucsa']];
+  const expr=['match',['get','main_entit']];
   for(const c of categories){ expr.push(c,colorMap[c]); }
   expr.push('#CFCFCF');
   return expr;
 }
 
-function joinHeightsClientSide(lucsaGeo, osmFeatures){
+function joinHeightsClientSide(buildingsGeo, osmFeatures){
   const osmIndex = osmFeatures.map(f=>({bbox:turf.bbox(f.geometry),feature:f}));
-  for(const lb of lucsaGeo.features){
-    let assigned=12;
-    const bb=turf.bbox(lb.geometry);
+  for(const b of buildingsGeo.features){
+    let assigned=15;
+    const bb=turf.bbox(b.geometry);
     for(const item of osmIndex){
       if(item.bbox[0]>bb[2]||item.bbox[2]<bb[0]||item.bbox[1]>bb[3]||item.bbox[3]<bb[1]) continue;
       try{
-        if(turf.booleanIntersects(lb.geometry,item.feature.geometry)){
+        if(turf.booleanIntersects(b.geometry,item.feature.geometry)){
           const h=item.feature.properties&&item.feature.properties.render_height;
           if(h&&!isNaN(Number(h))){assigned=Number(h);break;}
         }
       }catch{}
     }
-    lb.properties._height=assigned;
+    b.properties._height=assigned;
   }
 }
 
-function buildBlockToFeaturesIndex(precinctsGeo, lucsaGeo){
+function buildBlockToFeaturesIndex(precinctsGeo, buildingsGeo){
   blockToFeatureIndices={};
-  const lucsaBboxes = lucsaGeo.features.map(f=>turf.bbox(f.geometry));
+  const bboxes = buildingsGeo.features.map(f=>turf.bbox(f.geometry));
   for(const block of precinctsGeo.features){
     const blockId=block.properties.Block;
     blockToFeatureIndices[blockId]=[];
     const bb=turf.bbox(block.geometry);
-    for(let i=0;i<lucsaGeo.features.length;i++){
-      const lb=lucsaBboxes[i];
-      if(lb[0]>bb[2]||lb[2]<bb[0]||lb[1]>bb[3]||lb[3]<bb[1]) continue;
-      try{ if(turf.booleanIntersects(block.geometry,lucsaGeo.features[i].geometry)) blockToFeatureIndices[blockId].push(i);}catch{}
+    for(let i=0;i<buildingsGeo.features.length;i++){
+      const b=bboxes[i];
+      if(b[0]>bb[2]||b[2]<bb[0]||b[1]>bb[3]||b[3]<bb[1]) continue;
+      try{ if(turf.booleanIntersects(block.geometry,buildingsGeo.features[i].geometry)) blockToFeatureIndices[blockId].push(i);}catch{}
     }
   }
 }
 
-function addSuperlucsaLayer(){
-  map.addSource('superlucsa-buildings',{type:'geojson',data:lucsaBuildings});
+function addEntitLayer(){
+  map.addSource('entit-buildings',{type:'geojson',data:buildings});
   map.addLayer({
-    id:'superlucsa-buildings-3d',
+    id:'entit-buildings-3d',
     type:'fill-extrusion',
-    source:'superlucsa-buildings',
+    source:'entit-buildings',
     paint:{
       'fill-extrusion-color':[
         'case',
         ['==',['get','inBlock'],true],
-        superlucsaMatchExpression,
+        entitMatchExpression,
         '#d0d0d0'
       ],
       'fill-extrusion-height':['get','_height'],
@@ -225,23 +225,23 @@ function setupHoverHandlers(){
     const block=e.features[0].properties.Block;
     map.setFilter('precinct-highlight',['==',['get','Block'],block]);
     const indicesIn=new Set(blockToFeatureIndices[block]||[]);
-    for(let i=0;i<lucsaBuildings.features.length;i++){
-      lucsaBuildings.features[i].properties.inBlock=indicesIn.has(i);
+    for(let i=0;i<buildings.features.length;i++){
+      buildings.features[i].properties.inBlock=indicesIn.has(i);
     }
-    map.getSource('superlucsa-buildings').setData(lucsaBuildings);
+    map.getSource('entit-buildings').setData(buildings);
   });
   map.on('mouseleave','precinct-hover-hit',()=>{
     map.setFilter('precinct-highlight',['==',['get','Block'],'__none__']);
-    for(const f of lucsaBuildings.features) f.properties.inBlock=true;
-    map.getSource('superlucsa-buildings').setData(lucsaBuildings);
+    for(const f of buildings.features) f.properties.inBlock=true;
+    map.getSource('entit-buildings').setData(buildings);
   });
 }
 
 function buildLegend(){
   const legend=document.getElementById('legend');
   legend.innerHTML='<h4>Legend</h4>';
-  legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (Superlucsa)</div>';
-  for(const [k,v] of Object.entries(superlucsaColors)){
+  legend.innerHTML+='<div style="font-weight:600;margin-top:6px;">Building classes (main_entit)</div>';
+  for(const [k,v] of Object.entries(entitColors)){
     legend.innerHTML+=`<div class="row"><div class="swatch" style="background:${v}"></div><div>${k}</div></div>`;
   }
   legend.innerHTML+='<div style="font-weight:600;margin-top:8px;">Block highlight (on hover)</div>';
