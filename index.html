@@ -95,7 +95,6 @@ async function loadData() {
 }
 
 function joinHeightsWithOSM(osmFeatures) {
-  // For each of your building polygons, find intersecting OSM feature and copy height
   for (let feat of enrichedBuildings.features) {
     let height = 20; // fallback
     for (let osm of osmFeatures) {
@@ -166,7 +165,7 @@ function highlightBlock(blockFeature) {
     0.2,0
   ]);
 
-  // Dim buildings outside
+  // Color logic: inside Block → lucsa_bus_, outside → grey
   const expr = ['case'];
   for(const feat of enrichedBuildings.features){
     const inside = turf.booleanIntersects(feat.geometry,poly);
@@ -177,12 +176,14 @@ function highlightBlock(blockFeature) {
     }
   }
   expr.push(defaultBuildingColor);
+
   map.setPaintProperty('building-3d','fill-extrusion-color',expr);
 }
 
 function resetBlocks(){
   map.setPaintProperty('precinct-fill','fill-opacity',0);
 }
+
 function resetBuildings(){
   map.setPaintProperty('building-3d','fill-extrusion-color',[
     'match',
