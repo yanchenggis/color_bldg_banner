@@ -52,7 +52,7 @@
       font-size:13px;
       color:#111;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      max-width:260px;
+      max-width:280px;
     }
     .legend h4 { margin:0 0 8px 0; font-size:15px; font-weight:600; }
     .legend .section-title { font-weight:600; margin-top:10px; margin-bottom:4px; font-size:12px; color:#555; }
@@ -80,16 +80,16 @@
 // ===== CONFIGURATION SECTION - EDIT THESE =====
 
 const CONFIG = {
-  // Main title and subtitle (edit freely)
+  // Main title and subtitle
   mainTitle: "Urban Analytics",
   mainSubtitle: "From Understanding Data to Developing Insights",
   
-  // Legend titles (edit freely)
+  // Legend titles
   legendTitle: "Legend",
   buildingClassTitle: "Main Entity of the Building",
-  blockHighlightTitle: "Precinct Zones",
+  blockHighlightTitle: "Precinct",
   
-  // Building category labels (edit the right side)
+  // Building category labels (maps main_entit values to display labels)
   categoryLabels: {
     "Government": "Government & Civic Buildings",
     "Business": "Business",
@@ -101,7 +101,7 @@ const CONFIG = {
     "Unknown": "Unable to determine"
   },
   
-  // Distinct color palette for building categories (more contrasting)
+  // Distinct color palette for building categories
   categoryColors: [
     '#E41A1C', // Red
     '#377EB8', // Blue
@@ -110,14 +110,26 @@ const CONFIG = {
     '#FF7F00', // Orange
     '#FFFF33', // Yellow
     '#A65628', // Brown
-    '#F781BF', // Pink
-    '#999999', // Grey
-    '#66C2A5', // Teal
-    '#FC8D62'  // Coral
+    '#999999'  // Grey
   ],
   
-  // Block highlight colors
-  blockColors: ['#FFD3B6','#FFAAA5','#A8E6CF','#D0BAFF','#FFFFB5']
+  // Block/Precinct labels (maps Block ID to display name)
+  precinctLabels: {
+    "1": "Heritage Triangle",
+    "2": "Civic",
+    "3": "Petaling Street",
+    "4": "Education",
+    "5": "Traditional Shopping Street"
+  },
+  
+  // Stronger, more distinct block highlight colors
+  blockColors: {
+    "1": '#E74C3C', // Bright Red
+    "2": '#3498DB', // Bright Blue
+    "3": '#2ECC71', // Bright Green
+    "4": '#9B59B6', // Purple
+    "5": '#F39C12'  // Orange
+  }
 };
 
 // ===== END CONFIGURATION =====
@@ -138,13 +150,12 @@ const map = new maplibregl.Map({
 });
 
 map.on('load', async ()=>{
-  // Set custom titles
   document.getElementById('mainTitle').textContent = CONFIG.mainTitle;
   document.getElementById('mainSubtitle').textContent = CONFIG.mainSubtitle;
   
   await waitForIdle();
 
-  // OSM background grey buildings - HIDDEN when hovering
+  // OSM background grey buildings
   map.addLayer({
     id:'osm-3d-base',
     type:'fill-extrusion',
@@ -154,15 +165,16 @@ map.on('load', async ()=>{
       'fill-extrusion-color':'#555555',
       'fill-extrusion-height':['get','render_height'],
       'fill-extrusion-base':['get','render_min_height'],
-      'fill-extrusion-opacity':0.4  // Reduced opacity so colored buildings stand out
+      'fill-extrusion-opacity':0.4
     }
   });
 
   // Load precincts
   precincts=await loadShapefileAsGeoJSON(PRECINCT_ZIP_URL);
   precincts.features.forEach((f,i)=>{
-    if(!('Block' in f.properties)) f.properties.Block=String(i);
-    f.properties._color=CONFIG.blockColors[i % CONFIG.blockColors.length];
+    const blockId = f.properties.Block || String(i);
+    f.properties.Block = blockId;
+    f.properties._color = CONFIG.blockColors[blockId] || '#CCCCCC';
   });
 
   // Load buildings
@@ -189,7 +201,6 @@ map.on('load', async ()=>{
   buildLegend();
 });
 
-/* ------- Helpers ------- */
 function waitForIdle(){
   return new Promise(res=>{
     if(map.loaded()&&map.isStyleLoaded()) map.once('idle',()=>res());
@@ -215,16 +226,14 @@ function buildMatchExpression(categories,colorMap){
   return expr;
 }
 
-// IMPROVED: Expands search radius to catch all segments of tall buildings
 function joinHeightsClientSideExpanded(buildingsGeo,osmFeatures){
   const osmIndex=osmFeatures.map(f=>({bbox:turf.bbox(f.geometry),feature:f}));
   
   for(const b of buildingsGeo.features){
     let maxHeight=15; 
     const bb=turf.bbox(b.geometry);
-    const expandedBB=[bb[0]-0.0001,bb[1]-0.0001,bb[2]+0.0001,bb[3]+0.0001]; // Expand search area
+    const expandedBB=[bb[0]-0.0001,bb[1]-0.0001,bb[2]+0.0001,bb[3]+0.0001];
     
-    // Find ALL OSM segments that intersect this building footprint
     const matchingHeights=[];
     for(const item of osmIndex){
       if(item.bbox[0]>expandedBB[2]||item.bbox[2]<expandedBB[0]||
@@ -239,7 +248,6 @@ function joinHeightsClientSideExpanded(buildingsGeo,osmFeatures){
       }catch{}
     }
     
-    // Use MAX height from all matching segments (solves tall building issue)
     if(matchingHeights.length>0) maxHeight=Math.max(...matchingHeights);
     b.properties._height=maxHeight;
   }
@@ -278,14 +286,14 @@ function addPrecinctLayer(){
     id:'precinct-highlight',
     type:'fill',
     source:'precincts',
-    paint:{'fill-color':['get','_color'],'fill-opacity':0.2},
+    paint:{'fill-color':['get','_color'],'fill-opacity':0.3},
     filter:['==',['get','Block'],'__none__']
   },'osm-3d-base');
   map.addLayer({
     id:'precinct-outline',
     type:'line',
     source:'precincts',
-    paint:{'line-color':'#fff','line-width':1.5,'line-opacity':0.6}
+    paint:{'line-color':'#fff','line-width':2,'line-opacity':0.7}
   },'osm-3d-base');
 }
 
@@ -304,7 +312,7 @@ function addEntitLayer(){
       ],
       'fill-extrusion-height':['get','_height'],
       'fill-extrusion-base':0,
-      'fill-extrusion-opacity':1.0  // Fully solid
+      'fill-extrusion-opacity':1.0
     }
   });
 }
@@ -340,8 +348,16 @@ function buildLegend(){
   }
   
   html+=`<div class="section-title">${CONFIG.blockHighlightTitle}</div>`;
-  for(const f of precincts.features){
-    html+=`<div class="row"><div class="swatch" style="background:${f.properties._color}"></div><div>Block ${f.properties.Block}</div></div>`;
+  
+  // Sort precincts by Block ID (1,2,3,4,5)
+  const sortedPrecincts = precincts.features.sort((a,b)=> 
+    parseInt(a.properties.Block) - parseInt(b.properties.Block)
+  );
+  
+  for(const f of sortedPrecincts){
+    const blockId = f.properties.Block;
+    const label = CONFIG.precinctLabels[blockId] || `Block ${blockId}`;
+    html+=`<div class="row"><div class="swatch" style="background:${f.properties._color}"></div><div>${label}</div></div>`;
   }
   
   legend.innerHTML=html;
