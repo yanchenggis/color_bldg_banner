@@ -53,6 +53,8 @@
       color:#111;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
       max-width:200px;
+      max-height: 50vh;
+      overflow-y: auto;
     }
     .legend h4 { margin:0 0 6px 0; font-size:12px; font-weight:600; }
     .legend .section-title { font-weight:600; margin-top:8px; margin-bottom:3px; font-size:10px; color:#666; }
@@ -63,6 +65,12 @@
       .content-overlay { left: 30px; top: 80%; }
       .title { font-size: 2.5em; }
       .subtitle { font-size: 1.2em; }
+      .legend {
+        bottom: 8px;
+        right: 8px;
+        max-width: 150px;
+        font-size: 10px;
+      }
     }
   </style>
 </head>
@@ -146,8 +154,13 @@ const map = new maplibregl.Map({
   zoom:14.5,
   pitch:55,
   bearing:0,
-  maxBounds:[[101.680,3.135],[101.715,3.165]]
+  maxBounds:[[101.680,3.135],[101.715,3.165]],
+  touchPitch: true,
+  touchZoomRotate: true,
+  dragRotate: true
 });
+
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
 map.on('load', async ()=>{
   document.getElementById('mainTitle').textContent = CONFIG.mainTitle;
